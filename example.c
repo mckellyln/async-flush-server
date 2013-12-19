@@ -1,7 +1,9 @@
 /*
  * example
- * int aflush(int fd, int fsync, off_t pos, off_t len)
- * int aclose(int fd)
+ *
+ * extern int aflush(int fd, int fsync, off_t pos, off_t len);
+ * extern int aclose(int fd);
+ *
  * asyncronously flush/close file if able to contact server
  * mck - 12/18/13
  */
