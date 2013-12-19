@@ -90,6 +90,7 @@ static __attribute__ ((used)) int aflush(int fd, int fsync, off_t pos, off_t len
     *fd_ptr = fd;
 
     int n = (int)sendmsg(sock, &message, 0);
+    close(sock);
     if (n != (iov[0].iov_len + iov[1].iov_len + iov[2].iov_len + iov[3].iov_len)) {
         if (fsync)
             sync_file_range(fd, pos, len, SYNC_FILE_RANGE_WAIT_BEFORE | SYNC_FILE_RANGE_WRITE | SYNC_FILE_RANGE_WAIT_AFTER);
@@ -150,6 +151,7 @@ static __attribute__ ((used)) int aclose(int fd)
     *fd_ptr = fd;
 
     (void)sendmsg(sock, &message, 0);
+    close(sock);
 
     return close(fd);
 }

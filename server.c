@@ -24,8 +24,8 @@ typedef struct{
 static POOL pool[MAX_POOLS];
 static int num_pools = 20;
 
-static int lifespan = 30000;
-static int interval = 3000;
+static int lifespan = 5000;
+static int interval = 100;
 static int blk_size = 67108864;
 
 static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
@@ -168,11 +168,11 @@ static void *handle_fd(void *lindx)
         if (meth == 1) {
             ret = sync_file_range(newfd, pos, len, SYNC_FILE_RANGE_WAIT_BEFORE | SYNC_FILE_RANGE_WRITE | SYNC_FILE_RANGE_WAIT_AFTER);
             if (debug)
-                fprintf(stderr,"flush: sync_file_range(%d,%ld,%ld) returns %d\n", newfd, pos, len, ret);
+                fprintf(stderr,"flush: %d sync_file_range(%d,%ld,%ld) returns %d\n", indx, newfd, pos, len, ret);
         }
         ret = posix_fadvise(newfd, pos, len, POSIX_FADV_DONTNEED);
         if (debug)
-            fprintf(stderr,"flush: posix_fadvise(%d,%ld,%ld) returns %d\n", newfd, pos, len, ret);
+            fprintf(stderr,"flush: %d posix_fadvise(%d,%ld,%ld) returns %d\n", indx, newfd, pos, len, ret);
         close(newfd);
         return NULL;
     }
@@ -181,7 +181,7 @@ static void *handle_fd(void *lindx)
     ts.tv_sec = lifespan / 1000;
     ts.tv_nsec = (long)((double)lifespan - ((double)ts.tv_sec * 1000.0)) * 1000000L;
     if (debug > 1)
-        fprintf(stderr,"close: waiting lifespan %ld:%ld secs\n", ts.tv_sec, ts.tv_nsec);
+        fprintf(stderr,"close: %d waiting lifespan %ld:%ld secs\n", indx, ts.tv_sec, ts.tv_nsec);
     nanosleep(&ts, NULL);
 
     pos = 0;
@@ -192,21 +192,21 @@ static void *handle_fd(void *lindx)
         if ((flags & O_ACCMODE) != O_RDONLY) {
             ret = sync_file_range(newfd, pos, len, SYNC_FILE_RANGE_WAIT_BEFORE | SYNC_FILE_RANGE_WRITE | SYNC_FILE_RANGE_WAIT_AFTER);
             if (debug)
-                fprintf(stderr,"close: sync_file_range(%d,%ld,%ld) returns %d\n", newfd, pos, len, ret);
+                fprintf(stderr,"close: %d sync_file_range(%d,%ld,%ld) returns %d\n", indx, newfd, pos, len, ret);
         }
         ret = posix_fadvise(newfd, pos, len, POSIX_FADV_DONTNEED);
         if (debug)
-            fprintf(stderr,"close: posix_fadvise(%d,%ld,%ld) returns %d\n", newfd, pos, len, ret);
+            fprintf(stderr,"close: %d posix_fadvise(%d,%ld,%ld) returns %d\n", indx, newfd, pos, len, ret);
         pos += len;
         ts.tv_sec = interval / 1000;
         ts.tv_nsec = (long)((double)interval - ((double)ts.tv_sec * 1000.0)) * 1000000L;
         if (debug > 1)
-            fprintf(stderr,"close: waiting interval %ld:%ld secs\n", ts.tv_sec, ts.tv_nsec);
+            fprintf(stderr,"close: %d waiting interval %ld:%ld secs\n", indx, ts.tv_sec, ts.tv_nsec);
         nanosleep(&ts, NULL);
     }
 
     if (debug)
-        fprintf(stderr,"close: final closing fd %d\n", newfd);
+        fprintf(stderr,"close: %d final closing fd %d\n", indx, newfd);
 
     close(newfd);
     return NULL;
@@ -360,6 +360,8 @@ int main(int argc,char *argv[])
                 }
             } else if (newfd >= 0) {
                 close(newfd);
+                if (debug)
+                    fprintf(stderr,"note: thread pool exhausted ...\n");
             }
         }
     }
