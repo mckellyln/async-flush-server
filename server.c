@@ -20,9 +20,9 @@ typedef struct{
     off_t pos;
     off_t len;
 }POOL;
-#define MAX_POOLS 100
+#define MAX_POOLS 128
 static POOL pool[MAX_POOLS];
-static int num_pools = 20;
+static int num_pools = 32;
 
 static int lifespan = 5000;
 static int interval = 100;
@@ -136,7 +136,6 @@ static void *handle_fd(void *lindx)
     int meth = pool[indx].meth;
     off_t pos = pool[indx].pos;
     off_t len = pool[indx].len;
-    pool[indx].used = 0;
     pthread_mutex_unlock(&lock);
 
 #if 0
@@ -146,13 +145,13 @@ static void *handle_fd(void *lindx)
 #endif
 
     if (newfd < 0)
-        return NULL;
+        goto end;
 
     int flags = fcntl(newfd, F_GETFL);
     if (flags < 0) {
         if (errno != EBADF)
             close(newfd);
-        return NULL;
+        goto end;
     }
 
     struct stat sbuf;
@@ -160,7 +159,7 @@ static void *handle_fd(void *lindx)
     if (ret < 0) {
         if (errno != EBADF)
             close(newfd);
-        return NULL;
+        goto end;
     }
     off_t fsz = sbuf.st_size;
 
@@ -171,10 +170,12 @@ static void *handle_fd(void *lindx)
                 fprintf(stderr,"flush: %d sync_file_range(%d,%ld,%ld) returns %d\n", indx, newfd, pos, len, ret);
         }
         ret = posix_fadvise(newfd, pos, len, POSIX_FADV_DONTNEED);
+
         if (debug)
             fprintf(stderr,"flush: %d posix_fadvise(%d,%ld,%ld) returns %d\n", indx, newfd, pos, len, ret);
+
         close(newfd);
-        return NULL;
+        goto end;
     }
 
     struct timespec ts;
@@ -209,6 +210,10 @@ static void *handle_fd(void *lindx)
         fprintf(stderr,"close: %d final closing fd %d\n", indx, newfd);
 
     close(newfd);
+end:
+    pthread_mutex_lock(&lock);
+    pool[indx].used = 0;
+    pthread_mutex_unlock(&lock);
     return NULL;
 }
 
@@ -231,7 +236,7 @@ int main(int argc,char *argv[])
         int i = 1;
         while(i < argc) {
             if ( (strncmp(argv[i], "-h", 2) == 0) || (strncmp(argv[i], "--h", 3) == 0) ) {
-                fprintf(stderr,"\nusage: %s [-help] [-debug] [-bg (daemon)] [-life <> (30000 usec)] [-int <> (3000 usec)] [-tmax <> (20 threads max)] [-m <> (blksiz MB (64))]\n\n", argv[0]);
+                fprintf(stderr,"\nusage: %s [-help] [-debug] [-bg (daemon)] [-life <> (30000 usec)] [-int <> (3000 usec)] [-tmax <> (32)] [-m <> (blksiz MB (64))]\n\n", argv[0]);
                 return 0;
             }
             if ( (strncmp(argv[i], "-b", 2) == 0) || (strncmp(argv[i], "--b", 3) == 0) ) {
@@ -254,6 +259,9 @@ int main(int argc,char *argv[])
             ++i;
         }
     }
+
+    if (num_pools <= 0)
+        num_pools = 1;
 
     if (num_pools > MAX_POOLS)
         num_pools = MAX_POOLS;
