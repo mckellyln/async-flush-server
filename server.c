@@ -24,7 +24,7 @@ typedef struct{
 static POOL pool[MAX_POOLS];
 static int num_pools = 32;
 
-static int lifespan = 5000;
+static int lifespan = 30000;
 static int interval = 100;
 static int blk_size = 67108864;
 
@@ -154,14 +154,9 @@ static void *handle_fd(void *lindx)
         goto end;
     }
 
-    struct stat sbuf;
-    int ret = fstat(newfd, &sbuf);
-    if (ret < 0) {
-        if (errno != EBADF)
-            close(newfd);
-        goto end;
-    }
-    off_t fsz = sbuf.st_size;
+    int ret = -1;
+
+    // flush
 
     if (type == 2) {
         if (meth == 1) {
@@ -178,12 +173,49 @@ static void *handle_fd(void *lindx)
         goto end;
     }
 
+    // close
+
+#if 1
+    int lifesecs = lifespan / 1000;
+
+    if (debug > 1)
+        fprintf(stderr,"close: %d fd %d waiting lifespan %d secs\n", indx, newfd, lifesecs);
+
+    time_t time_start = time(NULL);
+
+    sync_file_range(newfd, 0, 0, SYNC_FILE_RANGE_WAIT_BEFORE | SYNC_FILE_RANGE_WRITE | SYNC_FILE_RANGE_WAIT_AFTER);
+
+    time_t time_sync = time(NULL) - time_start;
+
+    if (time_sync < lifesecs) {
+        struct timespec ts;
+        ts.tv_sec = lifesecs - time_sync;
+        ts.tv_nsec = 0;
+        nanosleep(&ts, NULL);
+    }
+
+    posix_fadvise(newfd, 0, 0, POSIX_FADV_DONTNEED);
+
+    close(newfd);
+    goto end;
+#else
+    struct stat sbuf;
+    ret = fstat(newfd, &sbuf);
+    if (ret < 0) {
+        if (errno != EBADF)
+            close(newfd);
+        goto end;
+    }
+    off_t fsz = sbuf.st_size;
+
     struct timespec ts;
     ts.tv_sec = lifespan / 1000;
     ts.tv_nsec = (long)((double)lifespan - ((double)ts.tv_sec * 1000.0)) * 1000000L;
     if (debug > 1)
-        fprintf(stderr,"close: %d waiting lifespan %ld:%ld secs\n", indx, ts.tv_sec, ts.tv_nsec);
+        fprintf(stderr,"close: %d fd %d waiting lifespan %ld:%ld secs\n", indx, newfd, ts.tv_sec, ts.tv_nsec);
     nanosleep(&ts, NULL);
+
+    // throttled write-out and page cache drop
 
     pos = 0;
     len = blk_size;
@@ -206,11 +238,13 @@ static void *handle_fd(void *lindx)
         nanosleep(&ts, NULL);
     }
 
+    close(newfd);
+    goto end;
+#endif
+
+end:
     if (debug)
         fprintf(stderr,"close: %d final closing fd %d\n", indx, newfd);
-
-    close(newfd);
-end:
     pthread_mutex_lock(&lock);
     pool[indx].used = 0;
     pthread_mutex_unlock(&lock);
